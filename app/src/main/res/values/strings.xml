@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">觉心助手</string>
+    <string name="accessibility_service_description">觉心助手需要读取微信聊天消息，以便在信众提问时自动生成符合师父人设的回复建议。本服务仅读取聊天文本，不会收集任何个人信息。</string>
 </resources>

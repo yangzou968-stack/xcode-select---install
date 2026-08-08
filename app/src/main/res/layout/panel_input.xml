@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    输入面板 — 上半屏半透明浮层
+    · 显示对方最新消息（实时读取）
+    · 输入自定义问题
+    · 点击生成师父回复
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#E6F5F0EB"
+    android:padding="14dp"
+    android:elevation="8dp">
+
+    <!-- 标题栏 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="觉心开示"
+            android:textColor="#8B4513"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btn_close_input"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:text="✕"
+            android:textSize="16sp"
+            android:background="@android:color/transparent"
+            android:textColor="#666"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp" />
+    </LinearLayout>
+
+    <!-- 聊天上下文：对方最新消息 -->
+    <LinearLayout
+        android:id="@+id/layout_context"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:orientation="vertical"
+        android:background="#33FFFFFF"
+        android:padding="10dp"
+        android:visibility="visible">
+
+        <TextView
+            android:id="@+id/tv_context_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="信众留言："
+            android:textColor="#999"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/tv_context_incoming"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="等待微信消息..."
+            android:textColor="#555"
+            android:textSize="13sp"
+            android:maxLines="3"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/tv_context_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text=""
+            android:textColor="#999"
+            android:textSize="10sp" />
+    </LinearLayout>
+
+    <!-- 自定义输入区 -->
+    <EditText
+        android:id="@+id/et_input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:minHeight="60dp"
+        android:maxHeight="120dp"
+        android:gravity="top"
+        android:hint="输入信众问题，或直接使用上方消息..."
+        android:textColor="#333"
+        android:textColorHint="#BBB"
+        android:textSize="14sp"
+        android:background="#FAFFFFFF"
+        android:padding="10dp"
+        android:inputType="textMultiLine"
+        android:scrollbars="vertical" />
+
+    <!-- 操作按钮 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:orientation="horizontal"
+        android:gravity="end">
+
+        <Button
+            android:id="@+id/btn_clear_input"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:text="清空"
+            android:textSize="13sp"
+            android:textColor="#999"
+            android:background="@android:color/transparent"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp" />
+
+        <Button
+            android:id="@+id/btn_generate"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_marginStart="8dp"
+            android:text="生成开示"
+            android:textSize="13sp"
+            android:textColor="#FFFFFF"
+            android:background="@drawable/btn_primary_bg" />
+    </LinearLayout>
+
+</LinearLayout>

@@ -1,302 +1,487 @@
 package com.juexin.assistant
 
-import android.app.*
-import android.content.BroadcastReceiver
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
+import android.content.SharedPreferences
 import android.graphics.PixelFormat
+import android.net.Uri
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
-import android.view.*
-import android.view.animation.AccelerateDecelerateInterpolator
+import android.os.Looper
+import android.provider.Settings
+import android.view.Gravity
+import android.view.LayoutInflater
+import android.view.MotionEvent
+import android.view.View
+import android.view.WindowManager
 import android.widget.*
 import androidx.core.app.NotificationCompat
-import androidx.lifecycle.LifecycleService
-import com.juexin.assistant.databinding.PanelReplyBinding
+import com.juexin.assistant.network.LlmClient
+import kotlinx.coroutines.*
 
-class FloatingBallService : LifecycleService() {
-
-    private var windowManager: WindowManager? = null
-    private var floatingBall: View? = null
-    private var replyPanel: View? = null
-    private var replyPanelBinding: PanelReplyBinding? = null
-
-    private val replyGenerator = ReplyGenerator()
+/**
+ * 觉心助手悬浮球服务 — 在微信聊天界面实时辅助师父回复信众
+ *
+ * V3.0 更新：
+ * - 集成无障碍服务实时读取微信聊天
+ * - 面板定位屏幕上半部，半透明浮层不遮挡聊天
+ * - 显示对方消息上下文 + 已回复内容
+ * - 支持实时交互：查看消息 → 生成开示 → 复制回复
+ */
+class FloatingBallService : Service() {
 
     companion object {
-        var isRunning = false
-        private set
-        const val CHANNEL_ID = "juexin_floating_service"
-        const val NOTIFICATION_ID = 1001
-        const val ACTION_SHOW_REPLIES = "com.juexin.SHOW_REPLIES"
-        const val EXTRA_CLIPBOARD_TEXT = "clipboard_text"
+        private const val CHANNEL_ID = "floating_ball_channel"
+        private const val NOTIFICATION_ID = 1001
+
+        // 外部实例引用（供 WeChatReaderService 通知新消息）
+        @Volatile
+        var instance: FloatingBallService? = null
+            private set
+
+        /**
+         * 无障碍服务检测到新消息时调用，通知悬浮球更新
+         */
+        fun onNewMessage(incoming: String, outgoing: String) {
+            instance?.let { svc ->
+                Handler(Looper.getMainLooper()).post {
+                    svc.lastIncomingMsg = incoming
+                    svc.lastOutgoingMsg = outgoing
+                    // 如果输入面板正在显示，实时更新上下文
+                    svc.updateContextDisplay()
+                }
+            }
+        }
     }
+
+    private lateinit var windowManager: WindowManager
+    private var floatingView: View? = null
+    private var inputPanel: View? = null
+    private var resultPanel: View? = null
+
+    // UI 组件 - 输入面板
+    private var etInput: EditText? = null
+    private var tvContextIncoming: TextView? = null
+    private var tvContextLabel: TextView? = null
+    private var tvContextStatus: TextView? = null
+
+    // UI 组件 - 结果面板
+    private var tvCompassion: TextView? = null
+    private var tvKarma: TextView? = null
+    private var tvAction: TextView? = null
+    private var tvSource: TextView? = null
+    private var tvStatus: TextView? = null
+    private var copyActionBtn: Button? = null
+    private var copyCompassionBtn: Button? = null
+    private var copyKarmaBtn: Button? = null
+
+    // 保存的回复内容
+    private var savedCompassion: String = ""
+    private var savedKarma: String = ""
+    private var savedAction: String = ""
+
+    // 聊天上下文（由无障碍服务实时更新）
+    @Volatile
+    var lastIncomingMsg: String = ""
+    @Volatile
+    var lastOutgoingMsg: String = ""
+
+    // 拖拽状态
+    private var downRawX = 0f
+    private var downRawY = 0f
+
+    // 协程
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun onCreate() {
         super.onCreate()
-        isRunning = true
-        createNotificationChannel()
-        startForeground(NOTIFICATION_ID, createNotification())
+        instance = this
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        createFloatingBall()
-        registerClipboardReceiver()
+        startForegroundNotification()
+        showFloatingBall()
     }
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // 从剪贴板广播接收器触发时，显示回复面板
-        intent?.getStringExtra(EXTRA_CLIPBOARD_TEXT)?.let { text ->
-            showReplyPanel(text)
-        }
-        return START_STICKY
-    }
-
-    override fun onBind(intent: Intent): IBinder? = null
 
     override fun onDestroy() {
-        isRunning = false
-        removeFloatingBall()
-        removeReplyPanel()
-        unregisterReceiver(clipboardReceiver)
+        instance = null
+        scope.cancel()
+        removeAllViews()
         super.onDestroy()
     }
 
-    // ========== 通知 ==========
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "觉心助手悬浮服务",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "保持悬浮球在后台运行"
-                setShowBadge(false)
-            }
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
-        }
-    }
-
-    private fun createNotification(): Notification {
-        val intent = Intent(this, MainActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(
-            this, 0, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("觉心助手")
-            .setContentText("悬浮球已就绪 · 长按复制消息后自动弹出回复")
-            .setSmallIcon(android.R.drawable.ic_menu_edit)
-            .setOngoing(true)
-            .setContentIntent(pendingIntent)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
-    }
-
-    // ========== 剪贴板广播接收 ==========
-
-    private val clipboardReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            val text = intent?.getStringExtra(EXTRA_CLIPBOARD_TEXT) ?: return
-            showReplyPanel(text)
-        }
-    }
-
-    private fun registerClipboardReceiver() {
-        val filter = IntentFilter(ACTION_SHOW_REPLIES)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(clipboardReceiver, filter, RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(clipboardReceiver, filter)
-        }
-    }
+    override fun onBind(intent: Intent?): IBinder? = null
 
     // ========== 悬浮球 ==========
 
-    private fun createFloatingBall() {
-        val ball = ImageView(this).apply {
-            setImageResource(android.R.drawable.ic_menu_edit)
-            setBackgroundColor(0xDD8B1A1A.toInt())
-            setPadding(16, 16, 16, 16)
-            alpha = 0.85f
-        }
+    private fun showFloatingBall() {
+        val ball = LayoutInflater.from(this).inflate(R.layout.floating_ball, null)
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            else
-                WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            else WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            gravity = Gravity.TOP or Gravity.END
             x = 0
-            y = 0
+            y = 300  // 上半屏位置
         }
 
-        // 拖拽悬浮球
-        var initialX = 0
-        var initialY = 0
-        var initialTouchX = 0f
-        var initialTouchY = 0f
-        var isDragging = false
+        windowManager.addView(ball, params)
+        floatingView = ball
 
-        ball.setOnTouchListener { view, event ->
+        // 半透明状态
+        ball.findViewById<ImageView>(R.id.iv_icon)?.alpha = 0.7f
+
+        // 点击 → 打开输入面板
+        ball.findViewById<ImageView>(R.id.iv_icon)?.setOnClickListener {
+            showInputPanel()
+        }
+
+        // 拖拽
+        ball.findViewById<ImageView>(R.id.iv_icon)?.setOnTouchListener { view, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    initialX = params.x
-                    initialY = params.y
-                    initialTouchX = event.rawX
-                    initialTouchY = event.rawY
-                    isDragging = false
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    params.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                            WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val dx = (event.rawX - initialTouchX).toInt()
-                    val dy = (event.rawY - initialTouchY).toInt()
-                    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-                        isDragging = true
-                    }
-                    params.x = initialX - dx
-                    params.y = initialY + dy
-                    windowManager?.updateViewLayout(ball, params)
+                    params.x = (windowManager.defaultDisplay.width - event.rawX).toInt()
+                    params.y = event.rawY.toInt() - 100
+                    windowManager.updateViewLayout(ball, params)
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (!isDragging) {
-                        // 点击悬浮球 → 读取剪贴板并显示回复
-                        onFloatingBallClicked()
+                    params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                    windowManager.updateViewLayout(ball, params)
+                    val dx = Math.abs(event.rawX - downRawX)
+                    val dy = Math.abs(event.rawY - downRawY)
+                    if (dx < 10 && dy < 10) {
+                        view.performClick()
                     }
-                    // 吸附边缘
-                    val screenWidth = windowManager?.defaultDisplay?.width ?: 1080
-                    params.x = if (params.x + ball.width / 2 > screenWidth / 2) 0 else screenWidth - ball.width
-                    windowManager?.updateViewLayout(ball, params)
                     true
                 }
                 else -> false
             }
         }
-
-        windowManager?.addView(ball, params)
-        floatingBall = ball
     }
 
-    private fun onFloatingBallClicked() {
-        // 读取剪贴板内容
-        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = clipboard.primaryClip
-        if (clip != null && clip.itemCount > 0) {
-            val text = clip.getItemAt(0).text?.toString()
-            if (!text.isNullOrBlank()) {
-                showReplyPanel(text)
-            } else {
-                showToast("请先在微信中复制佛弟子的消息")
+    // ========== 输入面板（上半屏半透明） ==========
+
+    private fun showInputPanel() {
+        scope.launch {
+            // 安全移除旧面板
+            removePanelSafely(inputPanel)
+            inputPanel = null
+            removePanelSafely(resultPanel)
+            resultPanel = null
+
+            // 预先加载聊天上下文
+            loadChatContext()
+
+            val panel = LayoutInflater.from(this@FloatingBallService)
+                .inflate(R.layout.panel_input, null)
+
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                else WindowManager.LayoutParams.TYPE_PHONE,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP
+                y = dpToPx(60)  // 避开状态栏
+                alpha = 0.95f
+                softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
             }
-        } else {
-            showToast("请先在微信中复制佛弟子的消息")
+
+            // 绑定UI元素
+            etInput = panel.findViewById(R.id.et_input)
+            tvContextIncoming = panel.findViewById(R.id.tv_context_incoming)
+            tvContextLabel = panel.findViewById(R.id.tv_context_label)
+            tvContextStatus = panel.findViewById(R.id.tv_context_status)
+
+            // 填入当前聊天上下文
+            updateContextDisplay()
+
+            // 关闭按钮
+            panel.findViewById<Button>(R.id.btn_close_input)?.setOnClickListener {
+                closeInputPanel()
+            }
+
+            // 清空按钮
+            panel.findViewById<Button>(R.id.btn_clear_input)?.setOnClickListener {
+                etInput?.text?.clear()
+            }
+
+            // 生成按钮
+            panel.findViewById<Button>(R.id.btn_generate)?.setOnClickListener {
+                val input = etInput?.text?.toString()?.trim() ?: ""
+                val contextText = lastIncomingMsg
+
+                val finalInput = if (input.isNotBlank()) input
+                else if (contextText.isNotBlank()) contextText
+                else {
+                    Toast.makeText(this@FloatingBallService, "请先输入问题或等待信众消息", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+
+                generateReply(finalInput)
+            }
+
+            windowManager.addView(panel, params)
+            inputPanel = panel
         }
     }
 
-    private fun removeFloatingBall() {
-        floatingBall?.let { windowManager?.removeView(it) }
-        floatingBall = null
+    /**
+     * 更新聊天上下文显示
+     */
+    private fun updateContextDisplay() {
+        val ctxIncoming = tvContextIncoming ?: return
+        val ctxLabel = tvContextLabel ?: return
+        val ctxStatus = tvContextStatus ?: return
+
+        if (lastIncomingMsg.isNotBlank()) {
+            ctxIncoming.text = lastIncomingMsg
+            ctxLabel.text = "信众最新留言："
+            ctxStatus.text = if (lastOutgoingMsg.isNotBlank())
+                "已回复：${lastOutgoingMsg.take(30)}..." else ""
+        } else {
+            // 尝试从 SharedPreferences 重新加载
+            loadChatContext()
+            if (lastIncomingMsg.isNotBlank()) {
+                ctxIncoming.text = lastIncomingMsg
+            } else {
+                ctxLabel.text = "聊天上下文："
+                ctxIncoming.text = "尚未收到消息\n请确保已开启无障碍服务"
+                ctxStatus.text = ""
+            }
+        }
     }
 
-    // ========== 回复面板 ==========
+    /**
+     * 从 SharedPreferences 加载聊天上下文
+     */
+    private fun loadChatContext() {
+        val prefs = getSharedPreferences(WeChatReaderService.PREFS_NAME, MODE_PRIVATE)
+        val incoming = prefs.getString(WeChatReaderService.KEY_LAST_INCOMING, "")
+        val outgoing = prefs.getString(WeChatReaderService.KEY_LAST_OUTGOING, "")
+        val lastUpdate = prefs.getLong(WeChatReaderService.KEY_LAST_UPDATE, 0L)
 
-    private fun showReplyPanel(clipboardText: String) {
-        removeReplyPanel()
+        if (!incoming.isNullOrBlank()) {
+            lastIncomingMsg = incoming
+        }
+        if (!outgoing.isNullOrBlank()) {
+            lastOutgoingMsg = outgoing
+        }
+    }
+
+    // ========== 生成回复 ==========
+
+    private fun generateReply(userMessage: String) {
+        scope.launch {
+            // 显示 loading
+            tvStatus?.text = "正在恭请师父开示..."
+
+            try {
+                // 尝试 LLM 生成
+                val llmResult = withContext(Dispatchers.IO) {
+                    LlmClient.generateReply(userMessage, lastIncomingMsg)
+                }
+
+                if (llmResult != null) {
+                    savedCompassion = llmResult.compassion
+                    savedKarma = llmResult.karma
+                    savedAction = llmResult.action
+                    showResultPanel(
+                        ReplyResult(
+                            compassion = llmResult.compassion,
+                            karma = llmResult.karma,
+                            action = llmResult.action,
+                            source = ReplySource.LLM
+                        )
+                    )
+                } else {
+                    // 降级到本地话术库
+                    val local = ReplyGenerator.generate(userMessage)
+                    if (local != null) {
+                        savedCompassion = local.compassion
+                        savedKarma = local.karma
+                        savedAction = local.action
+                        showResultPanel(local)
+                    } else {
+                        showErrorNotification("生成失败，请检查网络或API配置")
+                    }
+                }
+            } catch (e: Exception) {
+                // 最终降级
+                val local = ReplyGenerator.generate(userMessage)
+                if (local != null) {
+                    savedCompassion = local.compassion
+                    savedKarma = local.karma
+                    savedAction = local.action
+                    showResultPanel(local)
+                } else {
+                    showErrorNotification("生成失败：${e.message}")
+                }
+            }
+        }
+    }
+
+    // ========== 结果面板（上半屏半透明） ==========
+
+    private fun showResultPanel(result: ReplyResult) {
+        removePanelSafely(inputPanel)
+        inputPanel = null
+        removePanelSafely(resultPanel)
+        resultPanel = null
 
         val panel = LayoutInflater.from(this).inflate(R.layout.panel_reply, null)
-        val binding = PanelReplyBinding.bind(panel)
-        replyPanelBinding = binding
-        replyPanel = panel
-
-        // 显示原始消息
-        binding.tvOriginalMessage.text = clipboardText
-
-        // 加载状态
-        binding.tvReply1.text = "师父正在感应..."
-        binding.tvReply2.text = "师父正在感应..."
-        binding.tvReply3.text = "师父正在感应..."
-
-        // 生成3条回复
-        val replies = replyGenerator.generate(clipboardText)
-        binding.tvReply1.text = replies[0]
-        binding.tvReply2.text = replies[1]
-        binding.tvReply3.text = replies[2]
-
-        // 点击复制
-        binding.cardReply1.setOnClickListener { copyAndDismiss(replies[0]) }
-        binding.cardReply2.setOnClickListener { copyAndDismiss(replies[1]) }
-        binding.cardReply3.setOnClickListener { copyAndDismiss(replies[2]) }
-
-        // 关闭按钮
-        binding.btnClose.setOnClickListener { removeReplyPanel() }
-
-        // 编辑按钮
-        binding.btnEdit1.setOnClickListener { editAndCopy(replies[0]) }
-        binding.btnEdit2.setOnClickListener { editAndCopy(replies[1]) }
-        binding.btnEdit3.setOnClickListener { editAndCopy(replies[2]) }
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            else
-                WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            else WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.BOTTOM
-            y = 0
+            gravity = Gravity.TOP
+            y = dpToPx(60)
+            alpha = 0.95f
         }
 
-        windowManager?.addView(panel, params)
+        // 绑定UI
+        tvCompassion = panel.findViewById(R.id.tv_compassion)
+        tvKarma = panel.findViewById(R.id.tv_karma)
+        tvAction = panel.findViewById(R.id.tv_action)
+        tvSource = panel.findViewById(R.id.tv_source)
+        tvStatus = panel.findViewById(R.id.tv_status)
+        copyCompassionBtn = panel.findViewById(R.id.btn_copy_compassion)
+        copyKarmaBtn = panel.findViewById(R.id.btn_copy_karma)
+        copyActionBtn = panel.findViewById(R.id.btn_copy_action)
 
-        // 入场动画
-        panel.translationY = panel.height.toFloat()
-        panel.animate()
-            .translationY(0f)
-            .setDuration(300)
-            .setInterpolator(AccelerateDecelerateInterpolator())
-            .start()
-    }
-
-    private fun copyAndDismiss(text: String) {
-        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText("juexin_reply", text)
-        clipboard.setPrimaryClip(clip)
-        showToast("已复制，回微信粘贴即可发送")
-        removeReplyPanel()
-    }
-
-    private fun editAndCopy(text: String) {
-        // 先复制，提示用户可编辑
-        copyAndDismiss(text)
-    }
-
-    private fun removeReplyPanel() {
-        replyPanel?.let {
-            it.animate()
-                .translationY(it.height.toFloat())
-                .setDuration(200)
-                .withEndAction {
-                    try { windowManager?.removeView(it) } catch (_: Exception) {}
-                }
-                .start()
+        // 填充内容
+        tvCompassion?.text = result.compassion
+        tvKarma?.text = result.karma
+        tvAction?.text = result.action
+        tvSource?.text = when (result.source) {
+            ReplySource.LLM -> "AI 生成"
+            ReplySource.REMOTE_SCRIPT -> "话术库"
+            ReplySource.LOCAL_FALLBACK -> "本地话术"
         }
-        replyPanel = null
-        replyPanelBinding = null
+        tvStatus?.text = ""
+
+        // 关闭按钮
+        panel.findViewById<Button>(R.id.btn_close_result)?.setOnClickListener {
+            closeResultPanel()
+        }
+
+        // 复制按钮
+        copyCompassionBtn?.setOnClickListener { copyToClipboard(result.compassion, "悲悯共情") }
+        copyKarmaBtn?.setOnClickListener { copyToClipboard(result.karma, "因果开示") }
+        copyActionBtn?.setOnClickListener { copyToClipboard(result.action, "法药指引") }
+
+        // 复制全文
+        panel.findViewById<Button>(R.id.btn_copy_all)?.setOnClickListener {
+            val full = "${result.compassion}\n\n${result.karma}\n\n${result.action}"
+            copyToClipboard(full, "全文开示")
+        }
+
+        // 重新生成
+        panel.findViewById<Button>(R.id.btn_regenerate)?.setOnClickListener {
+            // 回到输入面板
+            showInputPanel()
+            etInput?.setText(lastIncomingMsg)
+        }
+
+        windowManager.addView(panel, params)
+        resultPanel = panel
     }
 
-    private fun showToast(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    // ========== 辅助方法 ==========
+
+    private fun copyToClipboard(text: String, label: String) {
+        val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText(label, text))
+        Toast.makeText(this, "已复制 $label", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun closeInputPanel() {
+        removePanelSafely(inputPanel)
+        inputPanel = null
+        floatingView?.findViewById<ImageView>(R.id.iv_icon)?.alpha = 0.7f
+    }
+
+    private fun closeResultPanel() {
+        removePanelSafely(resultPanel)
+        resultPanel = null
+    }
+
+    private fun showErrorNotification(msg: String) {
+        Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+    }
+
+    private fun removePanelSafely(view: View?) {
+        view?.let {
+            try { windowManager.removeView(it) } catch (_: Exception) {}
+        }
+    }
+
+    private fun removeAllViews() {
+        removePanelSafely(floatingView)
+        floatingView = null
+        removePanelSafely(inputPanel)
+        inputPanel = null
+        removePanelSafely(resultPanel)
+        resultPanel = null
+    }
+
+    private fun dpToPx(dp: Int): Int =
+        (dp * resources.displayMetrics.density).toInt()
+
+    // ========== 前台通知 ==========
+
+    private fun startForegroundNotification() {
+        val channel = NotificationChannel(
+            CHANNEL_ID, "觉心助手", NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "悬浮球服务运行中"
+        }
+        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("觉心助手")
+            .setContentText("悬浮球已就绪，等待信众消息...")
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .build()
+
+        startForeground(NOTIFICATION_ID, notification)
     }
 }
