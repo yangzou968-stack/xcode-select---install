@@ -26,12 +26,16 @@ object ReplyGenerator {
     private var isInitialized = false
 
     /**
-     * 初始化：加载配置 + 同步远程话术库
+     * 初始化：加载配置 + V5 多变体话术库 + 同步远程话术库
      */
     suspend fun init(context: Context) {
         if (isInitialized) return
         try {
             com.juexin.assistant.network.AppConfig.load(context)
+            // V5：初始化内置多变体话术库
+            try {
+                com.juexin.assistant.database.LibraryV5Repository.init(context)
+            } catch (_: Exception) { }
             try {
                 library = ScriptRepository.syncFromRemote(context)
             } catch (_: Exception) { }
@@ -51,39 +55,51 @@ object ReplyGenerator {
     suspend fun generateReply(
         context: Context,
         userMessage: String,
-        conversationHistory: String = ""
+        conversationHistory: String = "",
+        devoteeId: String = ""
     ): ReplyResult {
         // 确保已初始化
         if (!isInitialized) {
             try { init(context) } catch (_: Exception) { }
         }
 
-        // 第1层：远程话术库关键词匹配
-        library?.let { lib ->
-            val matched = ScriptRepository.matchTemplate(lib, userMessage)
-            if (matched != null) {
+        // 第1层：V5 多变体话术库匹配（内置，随机选变体）
+        try {
+            com.juexin.assistant.database.LibraryV5Repository.match(userMessage)?.let { v5 ->
                 return ReplyResult(
-                    compassion = matched.compassion,
-                    karma = matched.karma,
-                    action = matched.action,
+                    compassion = v5.compassion,
+                    karma = v5.karma,
+                    action = v5.action,
                     source = ReplySource.REMOTE_SCRIPT
                 )
             }
-        }
+        } catch (_: Exception) { }
 
-        // 第2层：LLM 大模型生成（带对话上下文）
+        // 第2层：LLM 大模型生成（带对话上下文 + 信众记忆）
         if (LlmClient.isAvailable()) {
             try {
+                // 构建记忆注入上下文
+                val memory = if (devoteeId.isNotBlank()) {
+                    com.juexin.assistant.database.MemoryManager.buildMemoryContext(context, devoteeId)
+                } else ""
+
                 val llmReply = withTimeout(15000L) {
-                    LlmClient.generateReply(userMessage, conversationHistory)
+                    LlmClient.generateReply(userMessage, conversationHistory, memory)
                 }
                 if (llmReply != null) {
-                    return ReplyResult(
+                    val result = ReplyResult(
                         compassion = llmReply.compassion,
                         karma = llmReply.karma,
                         action = llmReply.action,
                         source = ReplySource.LLM
                     )
+                    // 记录对话到记忆库
+                    if (devoteeId.isNotBlank()) {
+                        try {
+                            com.juexin.assistant.database.MemoryManager.recordConversation(context, devoteeId, userMessage, result)
+                        } catch (_: Exception) { }
+                    }
+                    return result
                 }
                 // LLM 返回 null，记录失败原因
                 val err = LlmClient.lastError.ifBlank { "AI 返回空内容" }
