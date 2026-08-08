@@ -215,6 +215,9 @@ class FloatingBallService : Service() {
             // 预先加载聊天上下文
             loadChatContext()
 
+            // V4.2：触发自动采集佛弟子说过的全部消息（异步滚动读取）
+            triggerCollectAll()
+
             val panel = LayoutInflater.from(this@FloatingBallService)
                 .inflate(R.layout.panel_input, null)
 
@@ -315,6 +318,28 @@ class FloatingBallService : Service() {
         }
     }
 
+    /**
+     * V4.2：触发自动滚动采集佛弟子说过的全部消息
+     * 采集完成后刷新上下文显示，并缓存最新一条到 lastIncomingMsg
+     */
+    private fun triggerCollectAll() {
+        WeChatReaderService.instance?.let { svc ->
+            svc.collectAllMessages { allIncoming ->
+                // 回到主线程更新 UI
+                Handler(Looper.getMainLooper()).post {
+                    if (allIncoming.isNotEmpty()) {
+                        // 更新最近一条为最后一条佛弟子消息
+                        lastIncomingMsg = allIncoming.last()
+                    }
+                    updateContextDisplay()
+                    if (tvStatus != null) {
+                        tvStatus?.text = "已采集佛弟子消息 ${allIncoming.size} 条"
+                    }
+                }
+            }
+        }
+    }
+
     // ========== 生成回复 V4.0：统一使用 ReplyGenerator 三层架构 ==========
 
     private fun generateReply(userMessage: String) {
@@ -351,10 +376,18 @@ class FloatingBallService : Service() {
     }
 
     /**
-     * 从 SharedPreferences 加载完整对话历史
+     * 从 SharedPreferences 加载完整对话历史（V4.2：优先读取累积的全部佛弟子消息）
      */
     private fun loadConversationHistory(): String {
         return try {
+            WeChatReaderService.instance?.let { svc ->
+                val allIncoming = svc.loadAllIncoming()
+                if (allIncoming.isNotEmpty()) {
+                    // 汇总佛弟子说过的全部内容，供 LLM 综合分析
+                    return allIncoming.joinToString("\n") { "弟子：$it" }
+                }
+            }
+            // 回退：读取最近 N 轮对话
             val prefs = getSharedPreferences(WeChatReaderService.PREFS_NAME, MODE_PRIVATE)
             prefs.getString(WeChatReaderService.KEY_CONVERSATION, "") ?: ""
         } catch (e: Exception) {
