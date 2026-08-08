@@ -356,12 +356,13 @@ class FloatingBallService : Service() {
                 // 加载完整对话历史
                 val convHistory = loadConversationHistory()
 
-                // 统一通过 ReplyGenerator 生成（三层：远程话术库 → LLM+上下文 → 本地多变体）
+                // 统一通过 ReplyGenerator 生成（V5：多变体话术库 → LLM+记忆+上下文 → 本地兜底）
                 val result = withContext(Dispatchers.IO) {
                     ReplyGenerator.generateReply(
                         context = this@FloatingBallService,
                         userMessage = userMessage,
-                        conversationHistory = convHistory
+                        conversationHistory = convHistory,
+                        devoteeId = "default"
                     )
                 }
 
