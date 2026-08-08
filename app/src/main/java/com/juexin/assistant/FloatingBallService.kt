@@ -405,7 +405,14 @@ class FloatingBallService : Service() {
             ReplySource.REMOTE_SCRIPT -> "话术库"
             ReplySource.LOCAL_FALLBACK -> "本地话术"
         }
-        tvStatus?.text = ""
+        // 若 LLM 不可用，在状态栏提示具体原因（便于诊断）
+        tvStatus?.text = if (result.source == ReplySource.LLM) {
+            ""
+        } else if (!result.llmError.isNullOrBlank()) {
+            "⚠️ AI未生效: ${result.llmError}"
+        } else {
+            ""
+        }
 
         // 关闭按钮
         panel.findViewById<Button>(R.id.btn_close_result)?.setOnClickListener {
