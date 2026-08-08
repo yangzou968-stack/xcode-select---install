@@ -20,9 +20,9 @@ object ScriptRepository {
 
     // 默认远程地址（GitHub Raw）
     private const val DEFAULT_VERSION_URL =
-        "https://raw.githubusercontent.com/yangzou968-stack/juexin-android-app/main/scripts/version.json"
+        "https://raw.githubusercontent.com/yangzou968-stack/xcode-select---install/main/scripts/version.json"
     private const val DEFAULT_SCRIPTS_URL =
-        "https://raw.githubusercontent.com/yangzou968-stack/juexin-android-app/main/scripts/library.json"
+        "https://raw.githubusercontent.com/yangzou968-stack/xcode-select---install/main/scripts/library.json"
 
     var versionUrl = DEFAULT_VERSION_URL
     var scriptsUrl = DEFAULT_SCRIPTS_URL
