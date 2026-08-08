@@ -315,55 +315,50 @@ class FloatingBallService : Service() {
         }
     }
 
-    // ========== 生成回复 ==========
+    // ========== 生成回复 V4.0：统一使用 ReplyGenerator 三层架构 ==========
 
     private fun generateReply(userMessage: String) {
         scope.launch {
-            // 显示 loading
             tvStatus?.text = "正在恭请师父开示..."
 
             try {
-                // 尝试 LLM 生成
-                val llmResult = withContext(Dispatchers.IO) {
-                    LlmClient.generateReply(userMessage, lastIncomingMsg)
+                // 加载完整对话历史
+                val convHistory = loadConversationHistory()
+
+                // 统一通过 ReplyGenerator 生成（三层：远程话术库 → LLM+上下文 → 本地多变体）
+                val result = withContext(Dispatchers.IO) {
+                    ReplyGenerator.generateReply(
+                        context = this@FloatingBallService,
+                        userMessage = userMessage,
+                        conversationHistory = convHistory
+                    )
                 }
 
-                if (llmResult != null) {
-                    savedCompassion = llmResult.compassion
-                    savedKarma = llmResult.karma
-                    savedAction = llmResult.action
-                    showResultPanel(
-                        ReplyResult(
-                            compassion = llmResult.compassion,
-                            karma = llmResult.karma,
-                            action = llmResult.action,
-                            source = ReplySource.LLM
-                        )
-                    )
-                } else {
-                    // 降级到本地话术库
-                    val local = ReplyGenerator.generate(userMessage)
-                    if (local != null) {
-                        savedCompassion = local.compassion
-                        savedKarma = local.karma
-                        savedAction = local.action
-                        showResultPanel(local)
-                    } else {
-                        showErrorNotification("生成失败，请检查网络或API配置")
-                    }
-                }
+                savedCompassion = result.compassion
+                savedKarma = result.karma
+                savedAction = result.action
+                showResultPanel(result)
+
             } catch (e: Exception) {
                 // 最终降级
                 val local = ReplyGenerator.generate(userMessage)
-                if (local != null) {
-                    savedCompassion = local.compassion
-                    savedKarma = local.karma
-                    savedAction = local.action
-                    showResultPanel(local)
-                } else {
-                    showErrorNotification("生成失败：${e.message}")
-                }
+                savedCompassion = local.compassion
+                savedKarma = local.karma
+                savedAction = local.action
+                showResultPanel(local)
             }
+        }
+    }
+
+    /**
+     * 从 SharedPreferences 加载完整对话历史
+     */
+    private fun loadConversationHistory(): String {
+        return try {
+            val prefs = getSharedPreferences(WeChatReaderService.PREFS_NAME, MODE_PRIVATE)
+            prefs.getString(WeChatReaderService.KEY_CONVERSATION, "") ?: ""
+        } catch (e: Exception) {
+            ""
         }
     }
 
