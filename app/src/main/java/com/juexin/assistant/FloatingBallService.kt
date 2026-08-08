@@ -47,11 +47,10 @@ class FloatingBallService : Service() {
         const val EXTRA_CLIPBOARD_TEXT = "clipboard_text"
 
         // 外部实例引用（供 WeChatReaderService 通知新消息）
+        // 注意：使用 var + private set 会自动生成 getInstance()，不要再显式定义同名方法
         @Volatile
         var instance: FloatingBallService? = null
             private set
-
-        fun getInstance(): FloatingBallService? = instance
 
         /**
          * 无障碍服务检测到新消息时调用，通知悬浮球更新

@@ -72,7 +72,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateUI(btnStart: Button, btnStop: Button, tvStatus: TextView) {
-        val isRunning = FloatingBallService.getInstance() != null
+        val isRunning = FloatingBallService.instance != null
         btnStart.isEnabled = !isRunning
         btnStop.isEnabled = isRunning
         tvStatus.text = if (isRunning) "● 服务运行中" else "○ 服务未启动"
