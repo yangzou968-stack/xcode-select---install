@@ -78,11 +78,12 @@ class ClipboardService : LifecycleService() {
             // 简单判断是否为佛弟子消息（至少10个字符，避免误触）
             if (text.length < 8) return@addPrimaryClipChangedListener
 
-            // 通知悬浮窗服务显示回复
-            val intent = Intent(FloatingBallService.ACTION_SHOW_REPLIES).apply {
+            // 通知悬浮窗服务显示回复（通过 startService 传递 intent）
+            val intent = Intent(this, FloatingBallService::class.java).apply {
+                action = FloatingBallService.ACTION_SHOW_REPLIES
                 putExtra(FloatingBallService.EXTRA_CLIPBOARD_TEXT, text)
             }
-            sendBroadcast(intent)
+            startService(intent)
         }
     }
 }

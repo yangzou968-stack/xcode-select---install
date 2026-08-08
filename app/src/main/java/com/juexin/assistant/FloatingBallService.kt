@@ -41,10 +41,17 @@ class FloatingBallService : Service() {
         private const val CHANNEL_ID = "floating_ball_channel"
         private const val NOTIFICATION_ID = 1001
 
+        // 意图动作常量
+        const val ACTION_STOP = "com.juexin.assistant.action.STOP"
+        const val ACTION_SHOW_REPLIES = "com.juexin.assistant.action.SHOW_REPLIES"
+        const val EXTRA_CLIPBOARD_TEXT = "clipboard_text"
+
         // 外部实例引用（供 WeChatReaderService 通知新消息）
         @Volatile
         var instance: FloatingBallService? = null
             private set
+
+        fun getInstance(): FloatingBallService? = instance
 
         /**
          * 无障碍服务检测到新消息时调用，通知悬浮球更新
@@ -116,6 +123,24 @@ class FloatingBallService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        intent?.let {
+            when (it.action) {
+                ACTION_STOP -> {
+                    stopSelf()
+                }
+                ACTION_SHOW_REPLIES -> {
+                    val text = it.getStringExtra(EXTRA_CLIPBOARD_TEXT) ?: ""
+                    if (text.isNotBlank()) {
+                        lastIncomingMsg = text
+                        showInputPanel()
+                    }
+                }
+            }
+        }
+        return START_STICKY
+    }
 
     // ========== 悬浮球 ==========
 
