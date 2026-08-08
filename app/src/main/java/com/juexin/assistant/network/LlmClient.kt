@@ -85,7 +85,8 @@ object LlmClient {
      */
     suspend fun generateReply(
         userMessage: String,
-        conversationHistory: String = ""
+        conversationHistory: String = "",
+        memoryContext: String = ""
     ): LlmReplies? {
         if (apiKey.isBlank()) {
             lastError = "API密钥未配置"
@@ -94,7 +95,7 @@ object LlmClient {
 
         try {
             // 构建消息列表
-            val messages = buildMessages(userMessage, conversationHistory)
+            val messages = buildMessages(userMessage, conversationHistory, memoryContext)
 
             // 随机温度值增加输出变化
             val temp = 0.80 + Random.nextDouble() * 0.12
@@ -155,12 +156,25 @@ object LlmClient {
      */
     private fun buildMessages(
         userMessage: String,
-        conversationHistory: String
+        conversationHistory: String,
+        memoryContext: String
     ): List<ChatMessage> {
         val msgList = mutableListOf<ChatMessage>()
 
         // 系统提示词
         msgList.add(ChatMessage("system", SYSTEM_PROMPT))
+
+        // 注入信众记忆（画像 + 历史对话）
+        if (memoryContext.isNotBlank()) {
+            msgList.add(ChatMessage(
+                "user",
+                "以下是这位弟子的记忆档案和历史对话，请记住这些信息，结合它们来理解这位弟子的情况和需求：\n\n$memoryContext"
+            ))
+            msgList.add(ChatMessage(
+                "assistant",
+                "（师父已记住这位弟子的情况，会结合其历史给出有连续性的开示）"
+            ))
+        }
 
         // 如果有对话历史，先注入上下文
         if (conversationHistory.isNotBlank()) {
@@ -175,8 +189,8 @@ object LlmClient {
         }
 
         // 当前问题
-        val contextSuffix = if (conversationHistory.isNotBlank()) {
-            "\n\n（请结合上面的对话历史来回答，保持话题连贯）"
+        val contextSuffix = if (conversationHistory.isNotBlank() || memoryContext.isNotBlank()) {
+            "\n\n（请结合上面的对话历史和弟子记忆来回答，保持话题连贯，给出有针对性的开示）"
         } else ""
 
         msgList.add(ChatMessage(
