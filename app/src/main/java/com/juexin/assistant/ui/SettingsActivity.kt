@@ -99,23 +99,32 @@ class SettingsActivity : AppCompatActivity() {
         scope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {
-                    ReplyGenerator.generateReply(this@SettingsActivity, "测试")
+                    ReplyGenerator.generateReply(
+                        this@SettingsActivity,
+                        userMessage = "请师父开示",
+                        conversationHistory = ""
+                    )
                 }
-                Toast.makeText(
-                    this@SettingsActivity,
-                    "✅ 连接成功！来源: ${
-                        when (result.source) {
-                            com.juexin.assistant.ReplySource.LLM -> "AI生成"
-                            com.juexin.assistant.ReplySource.REMOTE_SCRIPT -> "云端话术库"
-                            com.juexin.assistant.ReplySource.LOCAL_FALLBACK -> "本地话术库"
-                        }
-                    }",
-                    Toast.LENGTH_LONG
-                ).show()
+
+                val detail = when (result.source) {
+                    com.juexin.assistant.ReplySource.LLM ->
+                        "✅ AI大模型连接成功！\n模型: ${LlmClient.model}"
+                    com.juexin.assistant.ReplySource.REMOTE_SCRIPT ->
+                        "⚠️ 云端话术库命中\n（LLM未启用或API不可达）"
+                    com.juexin.assistant.ReplySource.LOCAL_FALLBACK -> {
+                        val err = LlmClient.lastError
+                        if (err.isNotEmpty())
+                            "❌ 本地兜底\nLLM状态: $err"
+                        else
+                            "❌ 本地兜底\n（请检查API配置和网络）"
+                    }
+                }
+
+                Toast.makeText(this@SettingsActivity, detail, Toast.LENGTH_LONG).show()
             } catch (e: Exception) {
                 Toast.makeText(
                     this@SettingsActivity,
-                    "❌ 连接失败: ${e.message}",
+                    "❌ 异常: ${e.message}",
                     Toast.LENGTH_LONG
                 ).show()
             }
