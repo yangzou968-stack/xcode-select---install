@@ -215,9 +215,6 @@ class FloatingBallService : Service() {
             // 预先加载聊天上下文
             loadChatContext()
 
-            // V4.2：触发自动采集佛弟子说过的全部消息（异步滚动读取）
-            triggerCollectAll()
-
             val panel = LayoutInflater.from(this@FloatingBallService)
                 .inflate(R.layout.panel_input, null)
 
@@ -244,6 +241,9 @@ class FloatingBallService : Service() {
 
             // 填入当前聊天上下文
             updateContextDisplay()
+
+            // V4.2：触发自动采集佛弟子说过的全部消息（异步滚动读取，tvContextStatus 已绑定）
+            triggerCollectAll()
 
             // 关闭按钮
             panel.findViewById<Button>(R.id.btn_close_input)?.setOnClickListener {
@@ -323,18 +323,24 @@ class FloatingBallService : Service() {
      * 采集完成后刷新上下文显示，并缓存最新一条到 lastIncomingMsg
      */
     private fun triggerCollectAll() {
+        // 无障碍服务未连接时提示
+        if (WeChatReaderService.instance == null) {
+            tvContextStatus?.text = "未开启无障碍，无法自动采集（设置→更多设置→无障碍→觉心助手）"
+            return
+        }
         WeChatReaderService.instance?.let { svc ->
+            tvContextStatus?.text = "正在采集佛弟子历史消息..."
             svc.collectAllMessages { allIncoming ->
                 // 回到主线程更新 UI
                 Handler(Looper.getMainLooper()).post {
                     if (allIncoming.isNotEmpty()) {
                         // 更新最近一条为最后一条佛弟子消息
                         lastIncomingMsg = allIncoming.last()
+                        tvContextStatus?.text = "已采集佛弟子消息 ${allIncoming.size} 条"
+                    } else {
+                        tvContextStatus?.text = "未采集到消息（请确认无障碍已开启）"
                     }
                     updateContextDisplay()
-                    if (tvStatus != null) {
-                        tvStatus?.text = "已采集佛弟子消息 ${allIncoming.size} 条"
-                    }
                 }
             }
         }
