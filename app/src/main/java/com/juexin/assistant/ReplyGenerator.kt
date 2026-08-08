@@ -85,16 +85,39 @@ object ReplyGenerator {
                         source = ReplySource.LLM
                     )
                 }
-            } catch (_: Exception) { }
+                // LLM 返回 null，记录失败原因
+                val err = LlmClient.lastError.ifBlank { "AI 返回空内容" }
+                return localFallbackWithError(userMessage, err)
+            } catch (e: java.util.concurrent.TimeoutException) {
+                return localFallbackWithError(userMessage, "AI 请求超时")
+            } catch (e: Exception) {
+                val err = LlmClient.lastError.ifBlank { e.message ?: "AI 调用异常" }
+                return localFallbackWithError(userMessage, err)
+            }
+        } else {
+            // LLM 未配置
+            val local = matchLocalWithVariant(userMessage)
+            return ReplyResult(
+                compassion = local.compassion,
+                karma = local.karma,
+                action = local.action,
+                source = ReplySource.LOCAL_FALLBACK,
+                llmError = "AI 未配置（请在设置中填写 API Key）"
+            )
         }
+    }
 
-        // 第3层：本地多变体兜底（随机选一变体）
+    /**
+     * LLM 失败时的本地兜底，携带错误原因供 UI 提示
+     */
+    private fun localFallbackWithError(userMessage: String, llmError: String): ReplyResult {
         val local = matchLocalWithVariant(userMessage)
         return ReplyResult(
             compassion = local.compassion,
             karma = local.karma,
             action = local.action,
-            source = ReplySource.LOCAL_FALLBACK
+            source = ReplySource.LOCAL_FALLBACK,
+            llmError = llmError
         )
     }
 
@@ -422,12 +445,15 @@ object ReplyGenerator {
 
 /**
  * 回复结果
+ *
+ * @param llmError 若非 null，表示 LLM 层不可用/出错时的原因（供 UI 提示用户）
  */
 data class ReplyResult(
     val compassion: String,
     val karma: String,
     val action: String,
-    val source: ReplySource
+    val source: ReplySource,
+    val llmError: String? = null
 )
 
 /**
