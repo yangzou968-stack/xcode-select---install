@@ -23,6 +23,16 @@ object LibraryV5Repository {
     @Volatile
     private var libraryV5: ScriptLibraryV5? = null
 
+    /** 加载成功标志 */
+    @Volatile
+    var isLoaded: Boolean = false
+        private set
+
+    /** 加载失败原因（供诊断） */
+    @Volatile
+    var lastError: String = ""
+        private set
+
     /**
      * 初始化：从 assets 加载话术库并导入数据库
      */
@@ -32,17 +42,32 @@ object LibraryV5Repository {
             try {
                 // 从 assets 加载
                 val json = readAsset(context, "scripts/library.json")
+                if (json.isBlank()) {
+                    lastError = "assets 话术库为空或读取失败"
+                    return@withContext
+                }
                 libraryV5 = gson.fromJson(json, ScriptLibraryV5::class.java)
+                if (libraryV5 == null) {
+                    lastError = "话术库 JSON 解析为 null"
+                    return@withContext
+                }
+                isLoaded = true
+                lastError = ""
 
-                // 导入数据库（供查询统计）
+                // 导入数据库（供查询统计）——独立 try，不影响主流程
                 try {
                     val db = AppDatabase.getInstance(context)
                     val entities = buildEntities()
                     if (db.scriptTemplateDao().count() < entities.size) {
                         db.scriptTemplateDao().insertAll(entities)
                     }
-                } catch (_: Exception) { }
-            } catch (_: Exception) { }
+                } catch (e: Exception) {
+                    // 数据库导入失败不影响话术匹配
+                }
+            } catch (e: Exception) {
+                lastError = "话术库加载异常: ${e.message}"
+                libraryV5 = null
+            }
         }
     }
 
