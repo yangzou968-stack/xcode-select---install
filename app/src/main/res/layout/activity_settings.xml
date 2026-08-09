@@ -46,6 +46,21 @@
                 android:orientation="vertical"
                 android:padding="16dp">
 
+                <!-- 大模型选择 -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="选择大模型"
+                    android:textSize="13sp"
+                    android:textColor="#6D4C41"
+                    android:layout_marginBottom="4dp" />
+
+                <Spinner
+                    android:id="@+id/spinner_model"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginBottom="8dp" />
+
                 <!-- API 地址 -->
                 <TextView
                     android:layout_width="match_parent"
