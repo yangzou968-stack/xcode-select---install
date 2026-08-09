@@ -179,7 +179,8 @@ object LlmClient {
         userMessage: String,
         conversationHistory: String = "",
         memoryContext: String = "",
-        scriptReference: String = ""
+        scriptReference: String = "",
+        knowledgeContext: String = ""
     ): LlmReplies? {
         if (apiKey.isBlank()) {
             lastError = "API密钥未配置"
@@ -188,7 +189,7 @@ object LlmClient {
 
         try {
             // 构建消息列表
-            val messages = buildMessages(userMessage, conversationHistory, memoryContext, scriptReference)
+            val messages = buildMessages(userMessage, conversationHistory, memoryContext, scriptReference, knowledgeContext)
 
             // 随机温度值增加输出变化
             val temp = 0.80 + Random.nextDouble() * 0.12
@@ -251,12 +252,25 @@ object LlmClient {
         userMessage: String,
         conversationHistory: String,
         memoryContext: String,
-        scriptReference: String
+        scriptReference: String,
+        knowledgeContext: String
     ): List<ChatMessage> {
         val msgList = mutableListOf<ChatMessage>()
 
         // 系统提示词
         msgList.add(ChatMessage("system", SYSTEM_PROMPT))
+
+        // V6.2 RAG：注入检索到的知识片段
+        if (knowledgeContext.isNotBlank()) {
+            msgList.add(ChatMessage(
+                "user",
+                knowledgeContext
+            ))
+            msgList.add(ChatMessage(
+                "assistant",
+                "（师父已参考知识库中的相关内容，会融入开示）"
+            ))
+        }
 
         // 注入参考话术素材（V5 话术库命中的内容）
         if (scriptReference.isNotBlank()) {
