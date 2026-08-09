@@ -441,7 +441,7 @@ class FloatingBallService : Service() {
         tvKarma?.text = result.karma
         tvAction?.text = result.action
         tvSource?.text = when (result.source) {
-            ReplySource.LLM -> "AI 记忆生成"
+            ReplySource.LLM -> "AI 记忆+素材"
             ReplySource.REMOTE_SCRIPT -> "多变体话术库"
             ReplySource.LOCAL_FALLBACK -> "本地兜底话术"
         }
