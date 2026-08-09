@@ -441,18 +441,20 @@ class FloatingBallService : Service() {
         tvKarma?.text = result.karma
         tvAction?.text = result.action
         tvSource?.text = when (result.source) {
-            ReplySource.LLM -> "AI 生成"
-            ReplySource.REMOTE_SCRIPT -> "话术库"
-            ReplySource.LOCAL_FALLBACK -> "本地话术"
+            ReplySource.LLM -> "AI 记忆生成"
+            ReplySource.REMOTE_SCRIPT -> "多变体话术库"
+            ReplySource.LOCAL_FALLBACK -> "本地兜底话术"
         }
-        // 若 LLM 不可用，在状态栏提示具体原因（便于诊断）
-        tvStatus?.text = if (result.source == ReplySource.LLM) {
-            ""
-        } else if (!result.llmError.isNullOrBlank()) {
-            "⚠️ AI未生效: ${result.llmError}"
-        } else {
-            ""
+        // 诊断信息：V5话术库状态 + LLM 状态
+        val v5Loaded = com.juexin.assistant.database.LibraryV5Repository.isLoaded
+        val v5Error = com.juexin.assistant.database.LibraryV5Repository.lastError
+        val diag = buildString {
+            append("来源:${result.source}")
+            append(" | V5库:${if (v5Loaded) "已加载" else "未加载"}")
+            if (!v5Error.isBlank()) append("($v5Error)")
+            if (!result.llmError.isNullOrBlank()) append(" | AI:${result.llmError}")
         }
+        tvStatus?.text = diag
 
         // 关闭按钮
         panel.findViewById<Button>(R.id.btn_close_result)?.setOnClickListener {
