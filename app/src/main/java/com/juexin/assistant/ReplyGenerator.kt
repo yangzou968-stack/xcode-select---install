@@ -32,7 +32,8 @@ object ReplyGenerator {
      */
     suspend fun init(context: Context) {
         if (isInitialized) return
-        initMutex.withLock {
+        initMutex.lock()
+        try {
             if (isInitialized) return
             try {
                 com.juexin.assistant.network.AppConfig.load(context)
@@ -47,6 +48,8 @@ object ReplyGenerator {
             } catch (_: Exception) {
                 isInitialized = true
             }
+        } finally {
+            initMutex.unlock()
         }
     }
 
