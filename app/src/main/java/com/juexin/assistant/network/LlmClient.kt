@@ -86,7 +86,8 @@ object LlmClient {
     suspend fun generateReply(
         userMessage: String,
         conversationHistory: String = "",
-        memoryContext: String = ""
+        memoryContext: String = "",
+        scriptReference: String = ""
     ): LlmReplies? {
         if (apiKey.isBlank()) {
             lastError = "API密钥未配置"
@@ -95,7 +96,7 @@ object LlmClient {
 
         try {
             // 构建消息列表
-            val messages = buildMessages(userMessage, conversationHistory, memoryContext)
+            val messages = buildMessages(userMessage, conversationHistory, memoryContext, scriptReference)
 
             // 随机温度值增加输出变化
             val temp = 0.80 + Random.nextDouble() * 0.12
@@ -157,12 +158,25 @@ object LlmClient {
     private fun buildMessages(
         userMessage: String,
         conversationHistory: String,
-        memoryContext: String
+        memoryContext: String,
+        scriptReference: String
     ): List<ChatMessage> {
         val msgList = mutableListOf<ChatMessage>()
 
         // 系统提示词
         msgList.add(ChatMessage("system", SYSTEM_PROMPT))
+
+        // 注入参考话术素材（V5 话术库命中的内容）
+        if (scriptReference.isNotBlank()) {
+            msgList.add(ChatMessage(
+                "user",
+                "以下是师父的参考话术素材（来自话术库），请参考其中的风格、要点和落点，但要用你自己的语言重新组织，不要照抄：\n\n$scriptReference"
+            ))
+            msgList.add(ChatMessage(
+                "assistant",
+                "（师父已参考话术素材，会保持其专业风格，但用更贴合这位弟子具体情况的语言开示）"
+            ))
+        }
 
         // 注入信众记忆（画像 + 历史对话）
         if (memoryContext.isNotBlank()) {
