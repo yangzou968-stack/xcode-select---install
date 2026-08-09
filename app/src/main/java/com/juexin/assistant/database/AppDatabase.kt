@@ -20,9 +20,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     entities = [
         ScriptTemplateEntity::class,
         DevoteeProfileEntity::class,
-        ChatLogEntity::class
+        ChatLogEntity::class,
+        KnowledgeEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -30,6 +31,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun scriptTemplateDao(): ScriptTemplateDao
     abstract fun devoteeProfileDao(): DevoteeProfileDao
     abstract fun chatLogDao(): ChatLogDao
+    abstract fun knowledgeDao(): KnowledgeDao
 
     companion object {
         @Volatile
@@ -57,6 +59,29 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * 迁移 2→3：v3 新增 knowledge_base 表（RAG 知识库）
+         */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                try {
+                    db.execSQL("""CREATE TABLE IF NOT EXISTS knowledge_base (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        category TEXT NOT NULL,
+                        keywords TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        source TEXT NOT NULL DEFAULT 'seed',
+                        usageCount INTEGER NOT NULL DEFAULT 0,
+                        rating REAL NOT NULL DEFAULT 0,
+                        createdAt INTEGER NOT NULL DEFAULT 0
+                    )""")
+                } catch (e: Exception) {
+                    Log.w(TAG, "knowledge_base 表创建: ${e.message}")
+                }
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -65,7 +90,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "juexin.db"
                 )
                 // 显式迁移，保留数据
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 // 降级不销毁数据（仅当 schema 可兼容时）
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build()
