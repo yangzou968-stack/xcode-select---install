@@ -63,19 +63,12 @@ object ReplyGenerator {
             try { init(context) } catch (_: Exception) { }
         }
 
-        // 第1层：V5 多变体话术库匹配（内置，随机选变体）
-        try {
-            com.juexin.assistant.database.LibraryV5Repository.match(userMessage)?.let { v5 ->
-                return ReplyResult(
-                    compassion = v5.compassion,
-                    karma = v5.karma,
-                    action = v5.action,
-                    source = ReplySource.REMOTE_SCRIPT
-                )
-            }
-        } catch (_: Exception) { }
+        // 第1层：V5 多变体话术库匹配（内置，随机选变体）——作为 AI 的参考素材
+        val v5Template: com.juexin.assistant.model.VariantTemplate? = try {
+            com.juexin.assistant.database.LibraryV5Repository.match(userMessage)
+        } catch (_: Exception) { null }
 
-        // 第2层：LLM 大模型生成（带对话上下文 + 信众记忆）
+        // 第2层：LLM 大模型生成（V5话术库素材 + 对话上下文 + 信众记忆）——混合引擎
         if (LlmClient.isAvailable()) {
             try {
                 // 构建记忆注入上下文
@@ -83,8 +76,16 @@ object ReplyGenerator {
                     com.juexin.assistant.database.MemoryManager.buildMemoryContext(context, devoteeId)
                 } else ""
 
-                val llmReply = withTimeout(15000L) {
-                    LlmClient.generateReply(userMessage, conversationHistory, memory)
+                // 把 V5 命中素材格式化为参考文本
+                val scriptReference = v5Template?.let { v5 ->
+                    "【师父参考话术，可借鉴其风格和要点，但请用你自己的语言组织】\n" +
+                    "一、悲悯共情：${v5.compassion}\n" +
+                    "二、因果开示：${v5.karma}\n" +
+                    "三、法药指引：${v5.action}"
+                } ?: ""
+
+                val llmReply = withTimeout(20000L) {
+                    LlmClient.generateReply(userMessage, conversationHistory, memory, scriptReference)
                 }
                 if (llmReply != null) {
                     val result = ReplyResult(
@@ -103,15 +104,24 @@ object ReplyGenerator {
                 }
                 // LLM 返回 null，记录失败原因
                 val err = LlmClient.lastError.ifBlank { "AI 返回空内容" }
-                return localFallbackWithError(userMessage, err)
+                return localFallbackWithError(userMessage, err, v5Template)
             } catch (e: java.util.concurrent.TimeoutException) {
-                return localFallbackWithError(userMessage, "AI 请求超时")
+                return localFallbackWithError(userMessage, "AI 请求超时", v5Template)
             } catch (e: Exception) {
                 val err = LlmClient.lastError.ifBlank { e.message ?: "AI 调用异常" }
-                return localFallbackWithError(userMessage, err)
+                return localFallbackWithError(userMessage, err, v5Template)
             }
         } else {
-            // LLM 未配置
+            // LLM 未配置：优先用 V5 多变体话术，其次本地兜底
+            if (v5Template != null) {
+                return ReplyResult(
+                    compassion = v5Template.compassion,
+                    karma = v5Template.karma,
+                    action = v5Template.action,
+                    source = ReplySource.REMOTE_SCRIPT,
+                    llmError = "AI 未配置（请在设置中填写 API Key）"
+                )
+            }
             val local = matchLocalWithVariant(userMessage)
             return ReplyResult(
                 compassion = local.compassion,
@@ -124,9 +134,22 @@ object ReplyGenerator {
     }
 
     /**
-     * LLM 失败时的本地兜底，携带错误原因供 UI 提示
+     * LLM 失败时的本地兜底，优先用 V5 素材，其次本地多变体
      */
-    private fun localFallbackWithError(userMessage: String, llmError: String): ReplyResult {
+    private fun localFallbackWithError(
+        userMessage: String,
+        llmError: String,
+        v5Template: com.juexin.assistant.model.VariantTemplate? = null
+    ): ReplyResult {
+        if (v5Template != null) {
+            return ReplyResult(
+                compassion = v5Template.compassion,
+                karma = v5Template.karma,
+                action = v5Template.action,
+                source = ReplySource.REMOTE_SCRIPT,
+                llmError = llmError
+            )
+        }
         val local = matchLocalWithVariant(userMessage)
         return ReplyResult(
             compassion = local.compassion,
