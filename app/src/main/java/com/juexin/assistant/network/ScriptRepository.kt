@@ -50,11 +50,20 @@ object ScriptRepository {
         }
     }
 
+    /** 缓存有效期：24 小时 */
+    private const val CACHE_TTL_MS = 24L * 60 * 60 * 1000
+
     /**
-     * 检查并同步最新话术库
+     * 检查并同步最新话术库（带缓存过期策略）
      */
     suspend fun syncFromRemote(context: Context): ScriptLibrary? {
         try {
+            // 缓存未过期且已有内存缓存，直接返回（避免频繁拉取）
+            val lastSync = getLastSyncTime(context)
+            if (cachedLibrary != null && System.currentTimeMillis() - lastSync < CACHE_TTL_MS) {
+                return cachedLibrary
+            }
+
             // 1. 检查版本
             val versionJson = HttpClient.get(versionUrl)
             val versionCheck = HttpClient.gson.fromJson(versionJson, VersionCheck::class.java)
