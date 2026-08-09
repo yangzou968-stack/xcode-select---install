@@ -16,6 +16,7 @@ data class ScriptTemplateEntity(
     val action: String,            // 法药指引
     val usageCount: Int = 0,       // 使用次数（用于学习优化）
     val rating: Float = 0f,        // 好评率（学习）
+    val feedback: Int = 0,         // 用户反馈统计（v2 新增）
     val source: String = "local"   // 来源：local内置 / remote远程
 )
 
