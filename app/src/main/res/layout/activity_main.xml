@@ -126,6 +126,16 @@
     </LinearLayout>
 
     <Button
+        android:id="@+id/btn_script_library"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="📚 话术共享库"
+        android:textSize="14sp"
+        android:textColor="#8D6E63"
+        android:background="@android:color/transparent"
+        android:layout_marginBottom="4dp" />
+
+    <Button
         android:id="@+id/btn_settings"
         android:layout_width="match_parent"
         android:layout_height="48dp"
