@@ -19,6 +19,7 @@ object AppConfig {
     private val KEY_API_URL = stringPreferencesKey("api_url")
     private val KEY_API_KEY = stringPreferencesKey("api_key")
     private val KEY_MODEL = stringPreferencesKey("model")
+    private val KEY_MODEL_PRESET = stringPreferencesKey("model_preset")
     private val KEY_SCRIPTS_URL = stringPreferencesKey("scripts_url")
     private val KEY_VERSION_URL = stringPreferencesKey("version_url")
     private val KEY_USE_LLM = booleanPreferencesKey("use_llm")
@@ -97,5 +98,27 @@ object AppConfig {
         context.dataStore.edit { prefs ->
             prefs[KEY_AUTO_SYNC] = enabled
         }
+    }
+
+    /**
+     * 应用模型预设（切换 API 地址、模型名）
+     */
+    suspend fun applyModelPreset(context: Context, preset: ModelPresets.ModelPreset, apiKey: String) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_MODEL_PRESET] = preset.id
+            prefs[KEY_API_URL] = preset.apiBaseUrl
+            prefs[KEY_MODEL] = preset.modelName
+            prefs[KEY_API_KEY] = apiKey
+        }
+        LlmClient.apiUrl = preset.apiBaseUrl
+        LlmClient.model = preset.modelName
+        LlmClient.apiKey = apiKey
+    }
+
+    /**
+     * 获取当前模型预设 ID
+     */
+    suspend fun getModelPresetId(context: Context): String {
+        return context.dataStore.data.first()[KEY_MODEL_PRESET] ?: "deepseek-chat"
     }
 }
