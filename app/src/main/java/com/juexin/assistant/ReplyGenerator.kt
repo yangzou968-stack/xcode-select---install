@@ -92,8 +92,14 @@ object ReplyGenerator {
                     "三、法药指引：${v5.action}"
                 } ?: ""
 
+                // V6.2 RAG：检索知识库最相关的知识片段
+                val knowledgeItems = try {
+                    com.juexin.assistant.database.KnowledgeRetriever.retrieve(context, userMessage, 3)
+                } catch (_: Exception) { emptyList() }
+                val knowledgeContext = com.juexin.assistant.database.KnowledgeRetriever.buildKnowledgeContext(knowledgeItems)
+
                 val llmReply = withTimeout(20000L) {
-                    LlmClient.generateReply(userMessage, conversationHistory, memory, scriptReference)
+                    LlmClient.generateReply(userMessage, conversationHistory, memory, scriptReference, knowledgeContext)
                 }
                 if (llmReply != null) {
                     val result = ReplyResult(
@@ -108,6 +114,18 @@ object ReplyGenerator {
                             com.juexin.assistant.database.MemoryManager.recordConversation(context, devoteeId, userMessage, result)
                         } catch (_: Exception) { }
                     }
+
+                    // V6.2 学习积累：把优质 LLM 回复存入知识库，越用越丰富
+                    try {
+                        val topic = detectTopic(userMessage)
+                        com.juexin.assistant.database.KnowledgeRetriever.learnFromConversation(
+                            context = context,
+                            category = "learned_$topic",
+                            keywords = userMessage.take(50),
+                            title = "学习积累：${topic}场景回复",
+                            content = "信众问：${userMessage.take(100)}\n师父回复：${result.compassion}${result.karma}${result.action}".take(500)
+                        )
+                    } catch (_: Exception) { }
                     return result
                 }
                 // LLM 返回 null，记录失败原因
@@ -138,6 +156,27 @@ object ReplyGenerator {
                 source = ReplySource.LOCAL_FALLBACK,
                 llmError = "AI 未配置（请在设置中填写 API Key）"
             )
+        }
+    }
+
+    /**
+     * 检测消息主题（供学习积累分类）
+     */
+    private fun detectTopic(message: String): String {
+        val m = message.lowercase()
+        return when {
+            listOf("钱","财","穷","亏","负债","债","赌","生意","投资").any { m.contains(it) } -> "财运"
+            listOf("堕胎","流产","打胎","婴灵").any { m.contains(it) } -> "堕胎"
+            listOf("婚姻","离婚","出轨","老公","老婆","夫妻","感情","分手","小三").any { m.contains(it) } -> "婚姻"
+            listOf("孩子","儿子","女儿","不听话","叛逆","学习").any { m.contains(it) } -> "子女"
+            listOf("病","疼","痛","癌","医院","失眠","抑郁","焦虑").any { m.contains(it) } -> "健康"
+            listOf("梦","噩梦","鬼","鬼压床","睡不好").any { m.contains(it) } -> "噩梦"
+            listOf("去世","过世","托梦","亡","亲人").any { m.contains(it) } -> "亡亲"
+            listOf("邪淫","手淫","色情","淫欲").any { m.contains(it) } -> "邪淫"
+            listOf("工作","失业","老板","同事","事业").any { m.contains(it) } -> "职场"
+            listOf("压力","焦虑","烦","累","迷茫").any { m.contains(it) } -> "压力"
+            listOf("运势","倒霉","运气","不顺").any { m.contains(it) } -> "运势"
+            else -> "通用"
         }
     }
 
