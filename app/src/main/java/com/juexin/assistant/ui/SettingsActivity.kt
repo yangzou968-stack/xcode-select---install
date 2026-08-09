@@ -1,14 +1,17 @@
 package com.juexin.assistant.ui
 
 import android.os.Bundle
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.juexin.assistant.R
 import com.juexin.assistant.network.AppConfig
 import com.juexin.assistant.network.LlmClient
+import com.juexin.assistant.network.ModelPresets
 import com.juexin.assistant.network.ScriptRepository
 import com.juexin.assistant.ReplyGenerator
 import kotlinx.coroutines.*
@@ -50,6 +53,38 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btn_sync_now).setOnClickListener {
             syncScripts()
         }
+
+        // 大模型选择 Spinner
+        setupModelSpinner()
+    }
+
+    /**
+     * 初始化大模型选择 Spinner
+     */
+    private fun setupModelSpinner() {
+        val spinner = findViewById<Spinner>(R.id.spinner_model)
+        val presets = ModelPresets.PRESETS
+        val displayNames = presets.map { it.displayName }
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, displayNames)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinner.adapter = adapter
+
+        // 加载当前选择的模型
+        scope.launch {
+            val currentId = AppConfig.getModelPresetId(this@SettingsActivity)
+            val index = presets.indexOfFirst { it.id == currentId }
+            if (index >= 0) spinner.setSelection(index)
+        }
+
+        // 选择后自动填充 API 地址和模型名
+        spinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                val preset = presets[position]
+                etApiUrl.setText(preset.apiBaseUrl)
+                etModel.setText(preset.modelName)
+            }
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+        }
     }
 
     private fun loadCurrentConfig() {
@@ -74,9 +109,18 @@ class SettingsActivity : AppCompatActivity() {
         val key = etApiKey.text.toString().trim()
         val model = etModel.text.toString().trim()
 
+        // 获取当前选择的预设 ID
+        val spinner = findViewById<Spinner>(R.id.spinner_model)
+        val presetId = ModelPresets.PRESETS.getOrNull(spinner.selectedItemPosition)?.id ?: "deepseek-chat"
+
         scope.launch {
-            AppConfig.saveLlmConfig(this@SettingsActivity, url, key, model)
-            Toast.makeText(this@SettingsActivity, "✅ 配置已保存", Toast.LENGTH_SHORT).show()
+            // 保存预设 ID + API 配置
+            AppConfig.applyModelPreset(
+                this@SettingsActivity,
+                ModelPresets.getById(presetId) ?: ModelPresets.PRESETS[0],
+                key
+            )
+            Toast.makeText(this@SettingsActivity, "✅ 配置已保存（模型：$model）", Toast.LENGTH_SHORT).show()
         }
     }
 
