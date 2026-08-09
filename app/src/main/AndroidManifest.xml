@@ -38,6 +38,12 @@
             android:label="设置"
             android:theme="@style/Theme.JuexinAssistant" />
 
+        <activity
+            android:name=".ui.ScriptLibraryActivity"
+            android:exported="false"
+            android:label="话术共享库"
+            android:theme="@style/Theme.JuexinAssistant" />
+
         <service
             android:name=".FloatingBallService"
             android:exported="false"
