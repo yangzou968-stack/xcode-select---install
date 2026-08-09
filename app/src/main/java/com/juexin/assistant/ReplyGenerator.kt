@@ -23,25 +23,30 @@ import kotlin.random.Random
 object ReplyGenerator {
 
     private var library: ScriptLibrary? = null
+    @Volatile
     private var isInitialized = false
+    private val initMutex = kotlinx.coroutines.sync.Mutex()
 
     /**
-     * 初始化：加载配置 + V5 多变体话术库 + 同步远程话术库
+     * 初始化：加载配置 + V5 多变体话术库 + 同步远程话术库（线程安全，防重复初始化）
      */
     suspend fun init(context: Context) {
         if (isInitialized) return
-        try {
-            com.juexin.assistant.network.AppConfig.load(context)
-            // V5：初始化内置多变体话术库
+        initMutex.withLock {
+            if (isInitialized) return
             try {
-                com.juexin.assistant.database.LibraryV5Repository.init(context)
-            } catch (_: Exception) { }
-            try {
-                library = ScriptRepository.syncFromRemote(context)
-            } catch (_: Exception) { }
-            isInitialized = true
-        } catch (_: Exception) {
-            isInitialized = true
+                com.juexin.assistant.network.AppConfig.load(context)
+                // V5：初始化内置多变体话术库
+                try {
+                    com.juexin.assistant.database.LibraryV5Repository.init(context)
+                } catch (_: Exception) { }
+                try {
+                    library = ScriptRepository.syncFromRemote(context)
+                } catch (_: Exception) { }
+                isInitialized = true
+            } catch (_: Exception) {
+                isInitialized = true
+            }
         }
     }
 
