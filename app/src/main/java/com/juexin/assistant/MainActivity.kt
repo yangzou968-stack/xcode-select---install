@@ -11,6 +11,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.juexin.assistant.network.ScriptRepository
 import com.juexin.assistant.ui.SettingsActivity
+import com.juexin.assistant.ui.ScriptLibraryActivity
 import kotlinx.coroutines.*
 
 class MainActivity : AppCompatActivity() {
@@ -53,6 +54,10 @@ class MainActivity : AppCompatActivity() {
 
         btnSettings.setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
+        }
+
+        findViewById<Button>(R.id.btn_script_library).setOnClickListener {
+            startActivity(Intent(this, ScriptLibraryActivity::class.java))
         }
 
         // 初始化并加载话术库信息
